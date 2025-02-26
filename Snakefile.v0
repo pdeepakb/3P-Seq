@@ -3,11 +3,11 @@
 # - Combined analysis (all samples)
 # - Separate asexual-only analysis
 # - Separate sexual-only analysis
-# It further performs downstream analyses: hexamer analysis, Fischer test,
+# It further performs downstream analyses: hexamer analysis, Fischer test and 
 # integrates genome annotation via last exon identification and result combination.
 
+
 import os
-include: "common.smk"
 
 configfile: "config.yaml"
 
@@ -23,6 +23,9 @@ SCRIPTS = config["scripts"]
 ENVS = config["envs"]
 GENOME = config["genome"]
 OUTPUT = config["output"]
+
+def get_output_dir(output_file):
+    return os.path.dirname(output_file)
 
 ##############################
 # Final Targets (rule all)
@@ -45,7 +48,6 @@ rule all:
 ##############################
 # Main Processing (All Samples)
 ##############################
-
 rule preproc:
     input:
         lambda wc: config["samples"][wc.sample]["data"]
@@ -53,21 +55,16 @@ rule preproc:
         f"{OUTPUT['preprocessed']}{{sample}}.processed.fastq"
     params:
         genome=GENOME["fasta"],
-        configfile="config/config.yaml",
+        configfile="config.yaml",
         script=SCRIPTS["preproc"],
-        output_dir=lambda wildcards, output: os.path.dirname(output[0])
+        output_dir=lambda wildcards, output: get_output_dir(output[0])
     log:
         f"{OUTPUT['preprocessed']}logs/preproc_{{sample}}.log"
     conda:
         ENVS["preproc"]
     shell:
         """
-        echo "Creating output directory: {params.output_dir}"
         mkdir -p {params.output_dir}
-        echo "Running preproc script"
-        echo "Input: {input}"
-        echo "Output: {output}"
-        echo "Script: {params.script}"
         python {params.script} -q {input} -g {params.genome} -c {params.configfile} -o {output} > {log} 2>&1
         """
 
@@ -78,7 +75,7 @@ rule align:
         f"{OUTPUT['aligned']}{{sample}}.bed"
     params:
         bowtie_index = GENOME["index"],
-        configfile = "config/config.yaml",
+        configfile = "config.yaml",
         script = SCRIPTS["align"],
         output_dir=lambda wildcards, output: get_output_dir(output[0])
     log:
@@ -87,14 +84,7 @@ rule align:
         ENVS["align"]
     shell:
         """
-        echo "Creating output directory: {params.output_dir}"
         mkdir -p {params.output_dir}
-        echo "Running alignment script"
-        echo "Input: {input}"
-        echo "Output: {output}"
-        echo "Script: {params.script}"
-        echo "Bowtie index: {params.bowtie_index}"
-        echo "Config file: {params.configfile}"
         python {params.script} -q {input} -g {params.bowtie_index} -c {params.configfile} -o {output} > {log} 2>&1
         """
 
@@ -206,7 +196,6 @@ rule fisher:
 ##############################
 # Extended Annotation Analysis (combined results)
 ##############################
-
 rule identify_last_exons:
     input:
         genome_gtf = GENOME["gtf"]
@@ -214,19 +203,14 @@ rule identify_last_exons:
         f"{OUTPUT['results']}last_exons.txt"
     params:
         script = SCRIPTS["identify_last_exons"],
-        output_dir = lambda wildcards, output: get_output_dir(output[0])
+        output_dir=lambda wildcards, output: get_output_dir(output[0])
     log:
         f"{OUTPUT['results']}logs/identify_last_exons.log"
     conda:
         ENVS["default"]
     shell:
         """
-        echo "Creating output directory: {params.output_dir}"
         mkdir -p {params.output_dir}
-        echo "Running identify_last_exons script"
-        echo "Input: {input.genome_gtf}"
-        echo "Output: {output}"
-        echo "Script: {params.script}"
         python {params.script} {input.genome_gtf} {output} > {log} 2>&1
         """
 
@@ -248,4 +232,3 @@ rule combine_results:
         mkdir -p {params.output_dir}
         python {params.script} {input.last_exons} {input.fischer_result} > {output} 2> {log}
         """
-

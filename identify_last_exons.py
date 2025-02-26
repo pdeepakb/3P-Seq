@@ -33,4 +33,3 @@ if __name__ == '__main__':
     
     with open_gff(input_file) as infile, open(output_file, 'w') as outfile:
         process_gff(infile, outfile)
-

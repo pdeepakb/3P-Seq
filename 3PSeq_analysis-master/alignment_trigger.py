@@ -1,7 +1,6 @@
 #!/usr/bin/python
 
 import sys
-import string
 import re
 import os
 import subprocess
@@ -13,23 +12,23 @@ __date__ = '25/02/25' # modified from  '27/10/2015'
 def get_args():
     '''This function parses and return arguments passed in'''
     # Wrapper script description
-    parser = argparse.ArgumentParser(
-        description='Script is a wrapper for 3P-Seq pipeline')
+    parser = argparse.ArgumentParser(description='Script is a wrapper for 3P-Seq pipeline')
     # Add arguments
-    parser.add_argument(
-        '-q', '--fastq', type=str, help='Processed FASTQ file of the reads [output from 3Pseq_iniprocess.py]', required=False)
-    parser.add_argument(
-        '-g', '--genome', type=str, help='Path to the bowtie genome index file', required=True)
-    parser.add_argument(
-        '-o', '--output', type=str, help='Output directory to store the results', required=False)
+    parser.add_argument('-q', '--fastq', type=str, help='Processed FASTQ file of the reads [output from 3Pseq_iniprocess.py]', required=True)
+    parser.add_argument('-g', '--genome', type=str, help='Path to the bowtie genome index file', required=True)
+    parser.add_argument('-c', '--config', type=str, help='Configuration file', required=False)
+    parser.add_argument('-o', '--output', type=str, help='Output file path to store the results', required=True)
     # Array for all arguments passed to script
     args = parser.parse_args()
-    # Assign args to variables
-    fastq = args.fastq
-    genome = args.genome
-    output = args.output
-    # Return all variable values
-    return fastq, genome, output
+    return args.fastq, args.genome, args.config, args.output
+
+# Getting the arguments
+fastq, genome, config, output = get_args()
+
+# Directories and file paths
+bam_file = output.replace('.bed', '.bam')
+sam_file = output.replace('.bed', '.sam')
+unmapped_fastq = fastq.replace('.fastq', '_unmapped.fastq')
 
 # Fixed paths and options
 BOWTIE_PATH = "/usr/local/bin/bowtie"
@@ -40,79 +39,66 @@ BOWTIE_P = 20
 SAMTOOLS_PATH = "/usr/local/bin/samtools"
 BEDTOOLS_PATH = "/usr/local/bin/bedtools"
 
-# Getting the arguments
-processedfastqfile, genome, output = get_args()
-
 # Check for tool installations
-if os.path.exists(BOWTIE_PATH):
-    print("Found bowtie installation!!")
-else:
-    print("Sorry bowtie not found on your system.")
-    sys.exit(1)
+if not os.path.exists(BOWTIE_PATH):
+    sys.exit("Error: Bowtie not found on your system.")
+if not os.path.exists(SAMTOOLS_PATH):
+    sys.exit("Error: Samtools not found on your system.")
+if not os.path.exists(BEDTOOLS_PATH):
+    sys.exit("Error: Bedtools not found on your system.")
 
-if os.path.exists(SAMTOOLS_PATH):
-    print("Found samtools installation!!")
-else:
-    print("Sorry samtools installation not found on your system.")
-    sys.exit(1)
+def run_command(command):
+    '''Run system commands'''
+    try:
+        print(f"Running command: {command}")
+        result = subprocess.run(command, shell=True, check=True, capture_output=True)
+        print(result.stdout.decode())
+    except subprocess.CalledProcessError as e:
+        print(e.stderr.decode(), file=sys.stderr)
+        sys.exit(1)
 
-if os.path.exists(BEDTOOLS_PATH):
-    print("Found bam2bed!!!")
-else:
-    print("Sorry could not find 'bamToBed' program... Please specify a proper path.")
-    sys.exit(1)
+def run_bowtie(fastq, genome, sam_file, unmapped_fastq):
+    '''Run Bowtie'''
+    cmd = (f"{BOWTIE_PATH} -q -m {BOWTIE_M} -v {BOWTIE_V} -p {BOWTIE_P} --chunkmbs 200 --un {unmapped_fastq} "
+           f"{genome} {fastq} --sam {sam_file}")
+    run_command(cmd)
 
-def run_bowtie3P(processedfastqfile):
-    bowtie_cmd = (f"{BOWTIE_PATH} -q -m {BOWTIE_M} -v {BOWTIE_V} -p {BOWTIE_P} --chunkmbs 200 --un "
-                  f"{processedfastqfile.replace('.fastq', '_unmapped.fastq')} {genome} {processedfastqfile} --sam "
-                  f"{processedfastqfile.replace('.fastq', '_aligned.sam')}")
-    p = subprocess.Popen(bowtie_cmd, stdin=None, stdout=None, shell=True)
-    p.wait()
-    if p.returncode != 0:
-        return "Sorry!!..Something went wrong with the bowtie run... Ensure that all variables are specified properly."
-
-    processed_sam_file = open(processedfastqfile.replace('.fastq', '_filtered.sam'), 'w')
-
-    with open(processedfastqfile.replace('.fastq', '_aligned.sam')) as infile:
+def filter_sam(sam_file, filtered_sam_file):
+    '''Filter SAM file'''
+    with open(sam_file) as infile, open(filtered_sam_file, 'w') as outfile:
         for line in infile:
-            if line[0] == "@":
-                processed_sam_file.write(line)
-            if line.split('\t')[1] == "0":
-                MDZtag = str(line.split('\t')[12]).rstrip('\n')
-                if re.search(r"[A-Z]0$", MDZtag):
-                    processed_sam_file.write(line)
-            if line.split('\t')[1] == "16":
-                MDZtag = str(line.split('\t')[12]).rstrip('\n')
-                if re.search(r"MD:Z:0[A-Z]", MDZtag):
-                    processed_sam_file.write(line)
-    return "Done with bowtie alignment and processing of sam file"
+            if line.startswith("@") or re.search(r"MD:Z:\d+[A-Z]$", line):
+                outfile.write(line)
 
-def gettingbed_file(filtered_samfile):
-    samtools_cmd = (f"{SAMTOOLS_PATH} view -bS {filtered_samfile} > {filtered_samfile.replace('.sam', '.bam')}")
-    samtoolrun = subprocess.Popen(samtools_cmd, stdin=None, stdout=None, shell=True)
-    samtoolrun.wait()
+def sam_to_bam(sam_file, bam_file):
+    '''Convert SAM to BAM using Samtools'''
+    cmd = f"{SAMTOOLS_PATH} view -bS {sam_file} > {bam_file}"
+    run_command(cmd)
 
-    bedtools_cmd = (f"{BEDTOOLS_PATH} bamtobed -i {filtered_samfile.replace('.sam', '.bam')} > "
-                    f"{filtered_samfile.replace('.sam', '.bed')}")
-    bedtools_run = subprocess.Popen(bedtools_cmd, stdin=None, stdout=None, shell=True)
-    bedtools_run.wait()
+def bam_to_bed(bam_file, bed_file):
+    '''Convert BAM to BED using Bedtools'''
+    cmd = f"{BEDTOOLS_PATH} bamtobed -i {bam_file} > {bed_file}"
+    run_command(cmd)
 
-    bedfile = open(filtered_samfile.replace('.sam', '.bed'))
+def count_bed_entries(bed_file, output_file):
+    '''Count BED entries and write to output file'''
     range_count = {}
-    for line in bedfile:
-        bedcolumns = line.split('\t')
-        uniqrange = f"{bedcolumns[0]}_{bedcolumns[5].rstrip('\n')}_{bedcolumns[1]}_{bedcolumns[2]}"
-        try:
-            range_count[uniqrange] += 1
-        except KeyError:
-            range_count[uniqrange] = 1
+    with open(bed_file) as infile:
+        for line in infile:
+            bedcolumns = line.strip().split('\t')
+            uniqrange = f"{bedcolumns[0]}_{bedcolumns[5]}_{bedcolumns[1]}_{bedcolumns[2]}"
+            range_count[uniqrange] = range_count.get(uniqrange, 0) + 1
 
-    processed_bed_file = open(filtered_samfile.replace('.sam', '.bedcount'), 'w')
+    with open(output_file, 'w') as outfile:
+        for range_key, count in range_count.items():
+            columns = range_key.split("_") + [str(count)]
+            outfile.write("\t".join(columns) + "\n")
 
-    for i in range_count:
-        new_list = i.split("_")
-        new_list.append(str(range_count[i]))
-        processed_bed_file.write("\t".join(new_list) + "\n")
-
-print(run_bowtie3P(processedfastqfile))
-print(gettingbed_file(processedfastqfile.replace('.fastq', '_filtered.sam')))
+# Run alignment pipeline
+run_bowtie(fastq, genome, sam_file, unmapped_fastq)
+filtered_sam_file = sam_file.replace('.sam', '_filtered.sam')
+filter_sam(sam_file, filtered_sam_file)
+sam_to_bam(filtered_sam_file, bam_file)
+bam_to_bed(bam_file, output)
+count_bed_entries(output, output.replace('.bed', '.bedcount'))
+print(f"Alignment pipeline completed. Output written to {output}")

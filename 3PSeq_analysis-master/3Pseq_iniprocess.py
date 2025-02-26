@@ -7,25 +7,20 @@ import subprocess
 import argparse
 import gzip
 
-__author__ = 'Deepak Poduval' #updated from original 'Praveen Anand'
-__date__ = '25/02/2025/' #updated from '27/10/2015'
+__author__ = 'Deepak Poduval'  # updated from original 'Praveen Anand'
+__date__ = '25/02/2025/'  # updated from '27/10/2015'
 
 def get_args():
     """This function parses and returns arguments passed in."""
-    parser = argparse.ArgumentParser(
-        description='Script is a wrapper for 3P-Seq pipeline')
-    parser.add_argument(
-        '-q', '--fastq', type=str, help='RAW FASTQ file of the reads', required=True)
-    parser.add_argument(
-        '-g', '--genome', type=str, help='Path to the complete genome file', required=False)
-    parser.add_argument(
-        '-c', '--config', type=str, help='Configuration file', required=False)
-    parser.add_argument(
-        '-o', '--output', type=str, help='Output directory to store the results', required=False)
+    parser = argparse.ArgumentParser(description='Script is a wrapper for 3P-Seq pipeline')
+    parser.add_argument('-q', '--fastq', type=str, help='RAW FASTQ file of the reads', required=True)
+    parser.add_argument('-g', '--genome', type=str, help='Path to the complete genome file', required=False)
+    parser.add_argument('-c', '--config', type=str, help='Configuration file', required=False)
+    parser.add_argument('-o', '--output', type=str, help='Output file path to store the results', required=True)
     args = parser.parse_args()
     return args.fastq, args.genome, args.config, args.output
 
-fastqfile, genome, config, output = get_args()
+fastqfile, genome, config, output_file = get_args()
 
 def open_fastq(filename):
     """Open a FASTQ file in text mode, using gzip if necessary."""
@@ -34,7 +29,7 @@ def open_fastq(filename):
     else:
         return open(filename, 'r')
 
-def process_3pseq(fastqfile):
+def process_3pseq(fastqfile, output_file):
     """
     Processes the raw FASTQ file for 3P-Seq.
     Steps:
@@ -43,13 +38,13 @@ def process_3pseq(fastqfile):
       3. Exclude sequences that contain 'N'.
       4. Exclude sequences shorter than 20 nucleotides.
     """
-    # Determine processed filename; if gzipped, remove '.gz' appropriately.
-    if fastqfile.endswith('.gz'):
-        processed_filename = fastqfile.replace('.fastq.gz', '.processed.fastq')
-    else:
-        processed_filename = fastqfile.replace('.fastq', '.processed.fastq')
+    # Ensure the output directory exists
+    output_dir = os.path.dirname(output_file)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    print(f"Output directory: {output_dir}")
 
-    with open(processed_filename, 'w') as processed_fastq_file, open_fastq(fastqfile) as fastqraw:
+    with open(output_file, 'w') as processed_fastq_file, open_fastq(fastqfile) as fastqraw:
         current_name = None
         compdna = str.maketrans("ATGC", "TACG")
         trimmed_seq = ""
@@ -76,4 +71,4 @@ def process_3pseq(fastqfile):
                     processed_fastq_file.write(quality + '\n')
 
 if __name__ == '__main__':
-    process_3pseq(fastqfile)
+    process_3pseq(fastqfile, output_file)
