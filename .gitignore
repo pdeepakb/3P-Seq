@@ -1,0 +1,4 @@
+*.gz
+.snakemake/
+bowtie_index/
+logs/

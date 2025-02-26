@@ -1,0 +1,253 @@
+# Snakefile for the 3P-Seq analysis pipeline
+# Snakefile for the extended 3P‑Seq analysis pipeline
+# This workflow processes all samples (preproc, align) and then branches into:
+# - Combined analysis (all samples)
+# - Separate asexual-only analysis
+# - Separate sexual-only analysis
+# It further performs downstream analyses: hexamer analysis, Fischer test, ABS‑Scan, 3PSeq_analysis,
+# and integrates genome annotation via last exon identification and result combination.
+# This Snakefile implements the following steps:
+#  1. Pre-processing raw FASTQ files using 3Pseq_iniprocess.py
+#  2. Aligning processed reads using alignment_trigger.py
+#  3. Merging individual BED files into one file
+#  4. Deriving 3P-Peaks using detect_peaks.py with a read cutoff
+#  5. Extracting peak sequences as FASTA using bedtools
+#  6. Running hexamer analysis and Fischer's test on the peaks
+
+configfile: "config.yaml"
+
+# Extract sample names from the config (keys of the samples dictionary)
+SAMPLES = list(config["samples"].keys())
+
+# Get pipeline parameters (with defaults if not provided)
+READ_CUTOFF = config.get("read_cutoff", 10)
+SEED = config.get("seed", 42)
+
+# Define script paths for the 3P-Seq pipeline (hardcoded as per pipeline description)
+PREPROC_SCRIPT = "3PSeq_analysis-master/3Pseq_iniprocess.py"
+ALIGN_SCRIPT = "3PSeq_analysis-master/alignment_trigger.py"
+PEAKS_SCRIPT = "3PSeq_analysis-master/detect_peaks.py"
+HEXAMER_SCRIPT = "3PSeq_analysis-master/hexamer_logic.py"
+FISHER_SCRIPT = "3PSeq_analysis-master/fischers_test.py"
+
+# Genome paths from config
+GENOME_FASTA = config["genome"]["fasta"]
+GENOME_INDEX = config["genome"]["index"]
+
+# Final targets include outputs from the main pipeline and extended analyses.
+rule all:
+    input:
+        "hexamer/hexamer_output.txt",
+        "fisher/fischers_test_output.txt",
+        "abs_scan/abs_scan_output.txt",
+        "3pseq_analysis/analysis_output.txt",
+        "results/combined_results.txt"
+
+###########################################################################
+# Main Pipeline
+###########################################################################
+
+# Step 1: Pre-processing raw FASTQ files using 3Pseq_iniprocess.py
+rule preproc:
+    input:
+        lambda wc: config["samples"][wc.sample]["data"]
+    output:
+        "preprocessed/{sample}.processed.fastq"
+    params:
+        genome = GENOME_FASTA,
+        configfile = "config.yaml",
+        script = PREPROC_SCRIPT
+    log:
+        "logs/preproc_{sample}.log"
+    conda:
+        "envs/preproc.yaml"
+    shell:
+        """
+        mkdir -p preprocessed
+        python {params.script} -q {input} -g {params.genome} -c {params.configfile} -o preprocessed > {log} 2>&1
+        """
+
+# Step 2: Alignment using alignment_trigger.py
+rule align:
+    input:
+        "preprocessed/{sample}.processed.fastq"
+    output:
+        "aligned/{sample}.bed"
+    params:
+        bowtie_index = GENOME_INDEX,
+        configfile = "config.yaml",
+        script = ALIGN_SCRIPT
+    log:
+        "logs/align_{sample}.log"
+    conda:
+        "envs/align.yaml"
+    shell:
+        """
+        mkdir -p aligned
+        python {params.script} -q {input} -g {params.bowtie_index} -c {params.configfile} -o aligned > {log} 2>&1
+        """
+
+# Step 3: Merge individual BED files into one file
+rule merge_bed:
+    input:
+        expand("aligned/{sample}.bed", sample=SAMPLES)
+    output:
+        "merged/merged.bed"
+    log:
+        "logs/merge_bed.log"
+    conda:
+        "envs/default.yaml"
+    shell:
+        """
+        mkdir -p merged
+        cat {input} > {output} 2> {log}
+        """
+
+# Step 4: Deriving the 3P-Peaks using detect_peaks.py
+rule peaks:
+    input:
+        "merged/merged.bed"
+    output:
+        "peaks/peaks.txt"
+    params:
+        read_cutoff = READ_CUTOFF,
+        script = PEAKS_SCRIPT
+    log:
+        "logs/peaks.log"
+    conda:
+        "envs/peaks.yaml"
+    shell:
+        """
+        mkdir -p peaks
+        python {params.script} {input} {params.read_cutoff} > {output} 2> {log}
+        """
+
+# Step 5: Extract peak sequences as FASTA using bedtools
+rule peak_fasta:
+    input:
+        bed="peaks/peaks.txt",
+        genome=GENOME_FASTA
+    output:
+        "peaks/peaks.fa"
+    log:
+        "logs/peak_fasta.log"
+    conda:
+        "envs/bedtools.yaml"
+    shell:
+        """
+        bedtools getfasta -fi {input.genome} -bed {input.bed} -fo {output} > {log} 2>&1
+        """
+
+# Step 6a: Hexamer analysis using hexamer_logic.py
+rule hexamer:
+    input:
+        "peaks/peaks.fa"
+    output:
+        "hexamer/hexamer_output.txt"
+    params:
+        seed = SEED,
+        script = HEXAMER_SCRIPT
+    log:
+        "logs/hexamer.log"
+    conda:
+        "envs/hexamer.yaml"
+    shell:
+        """
+        mkdir -p hexamer
+        python {params.script} {input} {params.seed} > {output} 2> {log}
+        """
+
+# Step 6b: Fischer's test using fischers_test.py
+rule fisher:
+    input:
+        "peaks/peaks.fa"
+    output:
+        "fisher/fischers_test_output.txt"
+    params:
+        script = FISHER_SCRIPT
+    log:
+        "logs/fisher.log"
+    conda:
+        "envs/fisher.yaml"
+    shell:
+        """
+        mkdir -p fisher
+        python {params.script} {input} > {output} 2> {log}
+        """
+
+###########################################################################
+# Extended Analysis: Additional Tools
+###########################################################################
+
+# Rule for running ABS-Scan on the peak FASTA file
+rule abs_scan:
+    input:
+        "peaks/peaks.fa"
+    output:
+        "abs_scan/abs_scan_output.txt"
+    params:
+        script = config["abs_scan"]["script"]
+    log:
+        "logs/abs_scan.log"
+    conda:
+        "envs/abs_scan.yaml"
+    shell:
+        """
+        mkdir -p abs_scan
+        python {params.script} {input} > {output} 2> {log}
+        """
+
+# Rule for running an additional 3PSeq analysis (if needed)
+rule p3seq_analysis:
+    input:
+        "peaks/peaks.fa"  # Adjust the input file as necessary
+    output:
+        "3pseq_analysis/analysis_output.txt"
+    params:
+        script = config["3pseq_analysis"]["script"]
+    log:
+        "logs/3pseq_analysis.log"
+    conda:
+        "envs/3pseq_analysis.yaml"
+    shell:
+        """
+        mkdir -p 3pseq_analysis
+        python {params.script} {input} > {output} 2> {log}
+        """
+
+# Rule to identify last exons using the provided script and genome annotation
+rule identify_last_exons:
+    input:
+        genome_gtf = config["genome"]["gtf"]
+    output:
+        "results/last_exons.txt"
+    params:
+        script = config["scripts"]["identify_last_exons"]
+    log:
+        "logs/identify_last_exons.log"
+    conda:
+        "envs/default.yaml"
+    shell:
+        """
+        mkdir -p results
+        python {params.script} {input.genome_gtf} > {output} 2> {log}
+        """
+
+# Rule to combine results from ABS-Scan and the last exon identification
+rule combine_results:
+    input:
+        last_exons = "results/last_exons.txt",
+        abs_scan  = "abs_scan/abs_scan_output.txt"
+    output:
+        "results/combined_results.txt"
+    params:
+        script = config["scripts"]["combine_results"]
+    log:
+        "logs/combine_results.log"
+    conda:
+        "envs/default.yaml"
+    shell:
+        """
+        python {params.script} {input.last_exons} {input.abs_scan} > {output} 2> {log}
+        """
+

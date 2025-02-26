@@ -1,0 +1,67 @@
+# Configuration file for the 3P-Seq Snakemake pipeline
+
+# Sample definitions
+samples:
+  SRR3168630:
+    strain: "Asexual"
+    platform: "Illumina_GAIIx"
+    type: "single-end"
+    data: "SRR3168630.fastq.gz"
+
+  SRR3169012:
+    strain: "Sexual"
+    platform: "Illumina_GAIIx"
+    type: "single-end"
+    data: "SRR3169012.fastq.gz"
+
+  SRR3168939:
+    strain: "Sexual"
+    platform: "Illumina_GAIIx"
+    type: "single-end"
+    data: "SRR3168939.fastq.gz"
+
+  SRR3168624:
+    strain: "Sexual"
+    platform: "Ion_Torrent_PGM"
+    type: "single-end"
+    data: "SRR3168624.fastq.gz"
+
+# Genome information
+genome:
+  fasta: "SmedSxl_genome_v4.0.nt.gz"
+  gtf: "SmedSxl_genome_v4.0.all.gff.gz"
+  index: "bowtie_index/genome"
+
+# Output directories
+output:
+  preprocessed: "results/preprocessed/"
+  aligned: "results/aligned/"
+  merged: "results/merged/"
+  peaks: "results/peaks/"
+  hexamer: "results/hexamer/"
+  fisher: "results/fisher/"
+  results: "results/final/"
+
+# Pipeline parameters
+read_cutoff: 10
+seed: 42
+
+# Scripts and tools
+scripts:
+  preproc: "3PSeq_analysis-master/3Pseq_iniprocess.py"
+  align: "3PSeq_analysis-master/alignment_trigger.py"
+  peaks: "3PSeq_analysis-master/detect_peaks.py"
+  hexamer: "3PSeq_analysis-master/hexamer_logic.py"
+  fisher: "3PSeq_analysis-master/fischers_test.py"
+  identify_last_exons: "identify_last_exons.py"
+  combine_results: "combine_results.py"
+
+# Conda environments
+envs:
+  preproc: "envs/preproc.yaml"
+  align: "envs/align.yaml"
+  peaks: "envs/peaks.yaml"
+  hexamer: "envs/hexamer.yaml"
+  fisher: "envs/fisher.yaml"
+  default: "envs/default.yaml"
+  bedtools: "envs/bedtools.yaml"
