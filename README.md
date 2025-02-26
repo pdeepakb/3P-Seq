@@ -95,6 +95,29 @@ snakemake --use-conda --cores 4
 bowtie-build --wrapper basic-0 SmedSxl_genome_v4.0.nt.gz bowtie_index/genome
 ``
 
+### download fastq 
+
+Go to the 3P https://www.ncbi.nlm.nih.gov/sra/?term=SRP070102
+
+Download Fastq files 
+
+1. SRR3168630 - Planaria Asexual Strain - single end Poly A transcriptomic - Illumina GAIIx
+
+2. SRR3169012 - Planaria Sexual Strain - single end Poly A transcriptomic - Illumina GAIIx
+
+3. SRR3168939 - Planaria Sexual Strain - single end Poly A transcriptomic - Illumina GAIIx
+
+4. SRR3168624 - Planaria Sexual Strain - single end Poly A transcriptomic - Ion torrent PGM
+
+
+### fastqc look at the quality of the reads
+
+```{bash eval=FALSE}
+brew install fastqc
+sudo cp /opt/homebrew/bin/fastqc /usr/local/bin/
+mkdir -p qc
+fastqc -t 4 *fastq.gz -o qc/
+```
 
 By following these steps, you can install, test, and run the Snakemake-based workflow successfully.
 ```
